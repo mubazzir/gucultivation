@@ -1,0 +1,56 @@
+name: gu_cultivation
+description: A personal cultivation system inspired by Reverend Insanity. Real-world study becomes cultivation progress.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Local persistence - Hive is lightweight, fast, and excellent for Flutter
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Path utilities
+  path_provider: ^2.1.3
+  path: ^1.9.0
+
+  # JSON
+  json_annotation: ^4.9.0
+
+  # UUID for unique IDs
+  uuid: ^4.4.0
+
+  # Date/time formatting
+  intl: ^0.19.0
+
+  # Shared preferences for simple flags
+  shared_preferences: ^2.2.3
+
+  # Collection utilities
+  collection: ^1.18.0
+
+  # Icons
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.11
+  hive_generator: ^2.0.1
+  json_serializable: ^6.8.0
+  riverpod_generator: ^2.4.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/data/gu_worms.json
+    - assets/data/materials.json
