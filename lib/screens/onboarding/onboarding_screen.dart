@@ -96,57 +96,84 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Widget _buildNamePage() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.spa, size: 64, color: AppTheme.accent),
-          const SizedBox(height: 24),
-          Text(
-            'GU CULTIVATION',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: AppTheme.accent,
-                  letterSpacing: 4,
-                  fontWeight: FontWeight.w300,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'The path of the Gu Master begins with a single step.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.of(context).size.height -
+              MediaQuery.of(context).padding.top -
+              MediaQuery.of(context).padding.bottom -
+              48,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.spa,
+              size: 64,
+              color: AppTheme.accent,
+            ),
+            const SizedBox(height: 24),
+
+            Text(
+              'GU CULTIVATION',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: AppTheme.accent,
+                letterSpacing: 4,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              'The path of the Gu Master begins with a single step.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppTheme.inkDim,
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 48),
+
+            Text(
+              'What is your name, Gu Master?',
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 24),
+
+            TextField(
+              controller: _nameController,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppTheme.ink,
+                fontSize: 18,
+              ),
+              decoration: const InputDecoration(
+                hintText: 'Enter your name',
+                hintStyle: TextStyle(
                   color: AppTheme.inkDim,
-                  fontStyle: FontStyle.italic,
                 ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 48),
-          Text(
-            'What is your name, Gu Master?',
-            style: Theme.of(context).textTheme.titleLarge,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          TextField(
-            controller: _nameController,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: AppTheme.ink, fontSize: 18),
-            decoration: const InputDecoration(
-              hintText: 'Enter your name',
-              hintStyle: TextStyle(color: AppTheme.inkDim),
+              ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _beginCultivation(),
             ),
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _beginCultivation(),
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _beginCultivation,
-              child: const Text('BEGIN CULTIVATION'),
+
+            const SizedBox(height: 32),
+
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _beginCultivation,
+                child: const Text('BEGIN CULTIVATION'),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

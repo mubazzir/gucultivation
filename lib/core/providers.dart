@@ -65,11 +65,16 @@ StateNotifierProvider<PathsNotifier, List<PathModel>>((ref) {
 });
 
 class PathsNotifier extends StateNotifier<List<PathModel>> {
+
   final PersistenceService _db;
   PathsNotifier(this._db) : super(_db.getAllPaths());
 
   void refresh() {
     state = _db.getAllPaths();
+  }
+  Future<void> remove(String id) async {
+    await _db.deletePath(id);
+    refresh();
   }
 
   Future<void> add(String name) async {

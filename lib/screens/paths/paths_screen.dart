@@ -12,8 +12,53 @@ class PathsScreen extends ConsumerStatefulWidget {
 }
 
 class _PathsScreenState extends ConsumerState<PathsScreen> {
+  Future<void> _deletePath(String id, String name) async {
+    final profile = ref.read(profileProvider);
+
+    final path = ref.read(pathsProvider).where((p) => p.id == id).firstOrNull;
+    if (path != null && path.isHeavenPath) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Path'),
+        content: Text(
+          'Delete "$name"?\nAll progress on this path will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('DELETE'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final db = ref.read(persistenceProvider);
+    await db.deletePath(id);
+
+    if (profile != null && profile.selectedPathId == id) {
+      final remaining =
+      ref.read(pathsProvider).where((p) => p.id != id).toList();
+      profile.selectedPathId =
+      remaining.isNotEmpty ? remaining.first.id : null;
+      await ref.read(profileProvider.notifier).save(profile);
+      ref.read(profileProvider.notifier).refresh();
+    }
+
+    ref.read(pathsProvider.notifier).refresh();
+  }
+
   Future<void> _addPath() async {
     final controller = TextEditingController();
+
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -24,6 +69,8 @@ class _PathsScreenState extends ConsumerState<PathsScreen> {
           decoration: const InputDecoration(
             hintText: 'e.g. Flutter Path, Calculus, Physics',
           ),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
         ),
         actions: [
           TextButton(
@@ -37,10 +84,11 @@ class _PathsScreenState extends ConsumerState<PathsScreen> {
         ],
       ),
     );
+
+    controller.dispose();
     if (name == null || name.isEmpty) return;
 
     await ref.read(pathsProvider.notifier).add(name);
-    ref.read(pathsProvider.notifier).refresh();
 
     final profile = ref.read(profileProvider);
     if (profile != null &&
@@ -49,16 +97,9 @@ class _PathsScreenState extends ConsumerState<PathsScreen> {
       if (paths.isNotEmpty) {
         profile.selectedPathId = paths.last.id;
         await ref.read(profileProvider.notifier).save(profile);
+        ref.read(profileProvider.notifier).refresh();
       }
     }
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Path "$name" added. Tap it to cultivate on it.'),
-        backgroundColor: AppTheme.surfaceElevated,
-      ),
-    );
   }
 
   Future<void> _selectPath(String id) async {
@@ -66,13 +107,6 @@ class _PathsScreenState extends ConsumerState<PathsScreen> {
     if (profile == null) return;
     profile.selectedPathId = id;
     await ref.read(profileProvider.notifier).save(profile);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Path selected. Study time will grant XP here.'),
-        backgroundColor: AppTheme.surfaceElevated,
-      ),
-    );
   }
 
   String _formatDuration(int totalSeconds) {
@@ -112,7 +146,7 @@ class _PathsScreenState extends ConsumerState<PathsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'No paths yet.\nAdd a subject path (e.g. Math, Coding),\nthen select it before cultivating.',
+                'No paths yet.\nAdd a path, then select it before cultivating.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppTheme.inkDim),
               ),
@@ -132,7 +166,9 @@ class _PathsScreenState extends ConsumerState<PathsScreen> {
         itemBuilder: (context, index) {
           final p = paths[index];
           final selected = profile?.selectedPathId == p.id;
+
           return GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => _selectPath(p.id),
             child: Container(
               margin: const EdgeInsets.only(bottom: 10),
@@ -166,20 +202,25 @@ class _PathsScreenState extends ConsumerState<PathsScreen> {
                           Icons.check_circle,
                           color: AppTheme.accent,
                           size: 18,
-                        )
-                      else
-                        const Text(
-                          'Tap to select',
-                          style: TextStyle(
-                            color: AppTheme.inkDim,
-                            fontSize: 11,
+                        ),
+                      if (!p.isHeavenPath)
+                        IconButton(
+                          icon:
+                          const Icon(Icons.delete_outline, size: 20),
+                          color: AppTheme.inkDim,
+                          tooltip: 'Delete path',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
                           ),
+                          onPressed: () => _deletePath(p.id, p.name),
                         ),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    p.attainmentLabel,
+                    '${p.attainmentLabel}  ·  ${p.daoMarkLabel}: ${p.daoMarks}',
                     style: const TextStyle(
                       color: AppTheme.jade,
                       fontSize: 13,

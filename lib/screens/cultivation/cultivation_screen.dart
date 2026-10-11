@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/providers.dart';
+import '../../core/constants/app_constants.dart';
 import '../../services/cultivation_service.dart';
 import '../../services/spin_service.dart';
 import '../../config/cultivation_config.dart';
@@ -18,7 +19,8 @@ class CultivationScreen extends ConsumerStatefulWidget {
   const CultivationScreen({super.key});
 
   @override
-  ConsumerState<CultivationScreen> createState() => _CultivationScreenState();
+  ConsumerState<CultivationScreen> createState() =>
+      _CultivationScreenState();
 }
 
 class _CultivationScreenState extends ConsumerState<CultivationScreen> {
@@ -29,13 +31,20 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
   void initState() {
     super.initState();
     _startTicker();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final db = ref.read(persistenceProvider);
+      await db.ensureHeavenPath();
+      await db.ensureHeavenDayRollover();
+      ref.read(pathsProvider.notifier).refresh();
+      if (mounted) setState(() {});
+    });
   }
 
   void _startTicker() {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       final session = ref.read(sessionProvider);
-      if (session.isActive && !session.isPaused) {
+      if (session.isActive) {
         setState(() {
           _displaySeconds = session.getElapsedSeconds();
         });
@@ -53,56 +62,57 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
     final h = totalSeconds ~/ 3600;
     final m = (totalSeconds % 3600) ~/ 60;
     final s = totalSeconds % 60;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    return '${h.toString().padLeft(2, '0')}:'
+        '${m.toString().padLeft(2, '0')}:'
+        '${s.toString().padLeft(2, '0')}';
   }
 
   Future<void> _pickPath() async {
     final paths = ref.read(pathsProvider);
-    if (paths.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Add a path first on the Paths tab.'),
-          backgroundColor: AppTheme.surfaceElevated,
-        ),
-      );
-      return;
-    }
+    if (paths.isEmpty) return;
+
     final profile = ref.read(profileProvider);
     final chosen = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: AppTheme.surfaceElevated,
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'SELECT PATH TO CULTIVATE',
-                style: TextStyle(
-                  letterSpacing: 1.5,
-                  fontWeight: FontWeight.w600,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'SELECT PATH TO CULTIVATE',
+                  style: TextStyle(
+                    letterSpacing: 1.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-            ...paths.map(
-                  (p) => ListTile(
-                title: Text(p.name),
-                subtitle: Text(p.attainmentLabel),
-                trailing: profile?.selectedPathId == p.id
-                    ? const Icon(Icons.check, color: AppTheme.accent)
-                    : null,
-                onTap: () => Navigator.pop(ctx, p.id),
+              ...paths.map(
+                    (p) => ListTile(
+                  title: Text(p.name),
+                  subtitle: Text(
+                    '${p.attainmentLabel} · ${p.daoMarkLabel}: ${p.daoMarks}',
+                  ),
+                  trailing: profile?.selectedPathId == p.id
+                      ? const Icon(Icons.check, color: AppTheme.accent)
+                      : null,
+                  onTap: () => Navigator.pop(ctx, p.id),
+                ),
               ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
-    if (chosen != null && profile != null) {
-      profile.selectedPathId = chosen;
-      await ref.read(profileProvider.notifier).save(profile);
-    }
+
+    if (chosen == null || profile == null) return;
+    profile.selectedPathId = chosen;
+    await ref.read(profileProvider.notifier).save(profile);
+    ref.read(profileProvider.notifier).refresh();
+    ref.read(pathsProvider.notifier).refresh();
   }
 
   Future<void> _start() async {
@@ -115,15 +125,10 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
     });
   }
 
-  Future<void> _pause() async {
-    final svc = ref.read(cultivationServiceProvider);
-    await svc.pauseCultivation();
-    ref.read(sessionProvider.notifier).refresh();
-  }
-
   Future<void> _stop() async {
     final svc = ref.read(cultivationServiceProvider);
     final elapsed = await svc.stopCultivation();
+
     ref.read(sessionProvider.notifier).refresh();
     ref.read(profileProvider.notifier).refresh();
     ref.read(pathsProvider.notifier).refresh();
@@ -138,34 +143,15 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
       ref.read(guCollectionProvider.notifier).refresh();
       ref.read(materialCollectionProvider.notifier).refresh();
       ref.read(profileProvider.notifier).refresh();
-    } else if (elapsed > 0 && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Study at least 25 minutes in one session for a Basic Spin.',
-          ),
-          backgroundColor: AppTheme.surfaceElevated,
-        ),
-      );
+      ref.read(pathsProvider.notifier).refresh();
     }
   }
 
   Future<void> _accelerate() async {
     final svc = ref.read(cultivationServiceProvider);
-    final ok = await svc.spendStoneToAccelerate(stones: 1);
+    await svc.spendStoneToAccelerate(stones: 1);
     ref.read(profileProvider.notifier).refresh();
     ref.read(pathsProvider.notifier).refresh();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? 'Accelerated cultivation (+10 min essence).'
-              : 'Not enough Primal Stones.',
-        ),
-        backgroundColor: AppTheme.surfaceElevated,
-      ),
-    );
   }
 
   Future<void> _breakthrough() async {
@@ -188,6 +174,78 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
     );
   }
 
+  Widget _heavenTasksCard() {
+    final db = ref.read(persistenceProvider);
+    final status = db.getHeavenTaskStatus();
+    final heaven = db.getHeavenPath();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceElevated,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'HEAVEN PATH',
+                style: TextStyle(
+                  letterSpacing: 2,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.accent,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'Dao Marks: ${heaven?.daoMarks ?? 0}',
+                style: const TextStyle(color: AppTheme.jade, fontSize: 13),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '+1 when done · −1 each missed at day end',
+            style: TextStyle(color: AppTheme.inkDim, fontSize: 11),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: AppConstants.heavenDailyTasks.map((id) {
+              final done = status[id] == true;
+              final label = AppConstants.heavenTaskLabels[id] ?? id;
+              return FilterChip(
+                label: Text(label),
+                selected: done,
+                onSelected: done
+                    ? null
+                    : (_) async {
+                  await db.completeHeavenTask(id);
+                  ref.read(pathsProvider.notifier).refresh();
+                  setState(() {});
+                },
+                selectedColor: AppTheme.jade.withOpacity(0.3),
+                checkmarkColor: AppTheme.jade,
+                labelStyle: TextStyle(
+                  color: done ? AppTheme.jade : AppTheme.ink,
+                  fontSize: 12,
+                ),
+                side: BorderSide(
+                  color: done ? AppTheme.jade : AppTheme.border,
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
@@ -196,19 +254,18 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
     final svc = ref.read(cultivationServiceProvider);
 
     if (profile == null) {
-      return const Scaffold(body: Center(child: Text('No profile')));
+      return const Scaffold(
+        body: Center(child: Text('No profile')),
+      );
     }
 
     final progress = svc.progressInCurrentStage(profile);
     final selectedPath =
         paths.where((p) => p.id == profile.selectedPathId).firstOrNull;
-    final isRunning = session.isActive && !session.isPaused;
-    final isPaused = session.isActive && session.isPaused;
+    final isRunning = session.isActive;
 
     if (isRunning) {
       _displaySeconds = session.getElapsedSeconds();
-    } else if (isPaused) {
-      _displaySeconds = session.accumulatedSeconds;
     }
 
     return Scaffold(
@@ -266,7 +323,8 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   Text(
-                    'Today: ${_formatDuration(profile.todayStudySeconds)}  ·  Streak: ${profile.currentStreak}d',
+                    'Today: ${_formatDuration(profile.todayStudySeconds)}'
+                        '  ·  Streak: ${profile.currentStreak}d',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 8),
@@ -282,7 +340,7 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Path selector — XP goes to this path while timer runs
+            // Path selector
             GestureDetector(
               onTap: session.isActive ? null : _pickPath,
               child: Container(
@@ -309,7 +367,9 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                             ),
                           ),
                           Text(
-                            '${selectedPath.attainmentLabel} · tap to change',
+                            session.isActive
+                                ? '${selectedPath.attainmentLabel} · ${selectedPath.daoMarkLabel}: ${selectedPath.daoMarks}'
+                                : '${selectedPath.attainmentLabel} · tap to change',
                             style: const TextStyle(
                               color: AppTheme.inkDim,
                               fontSize: 12,
@@ -332,6 +392,9 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
               ),
             ),
 
+            // Heaven Path daily tasks
+            _heavenTasksCard(),
+
             const SizedBox(height: 24),
             Center(
               child: Text(
@@ -339,11 +402,7 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                 style: TextStyle(
                   fontSize: 48,
                   fontWeight: FontWeight.w200,
-                  color: isRunning
-                      ? AppTheme.accent
-                      : isPaused
-                      ? AppTheme.inkDim
-                      : AppTheme.ink,
+                  color: isRunning ? AppTheme.accent : AppTheme.ink,
                   letterSpacing: 4,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
@@ -352,11 +411,7 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
             const SizedBox(height: 8),
             Center(
               child: Text(
-                isRunning
-                    ? 'CULTIVATING...'
-                    : isPaused
-                    ? 'PAUSED'
-                    : 'READY',
+                isRunning ? 'CULTIVATING...' : 'READY',
                 style: TextStyle(
                   color: isRunning ? AppTheme.jade : AppTheme.inkDim,
                   letterSpacing: 3,
@@ -372,54 +427,29 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            Row(
-              children: [
-                if (!session.isActive) ...[
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _start,
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('START'),
-                    ),
+
+            if (!session.isActive)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _start,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('START'),
+                ),
+              )
+            else
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _stop,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('STOP'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryLight,
                   ),
-                ] else if (isPaused) ...[
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _start,
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('RESUME'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _stop,
-                      icon: const Icon(Icons.stop),
-                      label: const Text('STOP'),
-                    ),
-                  ),
-                ] else ...[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pause,
-                      icon: const Icon(Icons.pause),
-                      label: const Text('PAUSE'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _stop,
-                      icon: const Icon(Icons.stop),
-                      label: const Text('STOP'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryLight,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
+                ),
+              ),
+
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: profile.primalStones > 0 ? _accelerate : null,
@@ -428,6 +458,7 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                 'ACCELERATE (1 Stone → 10m)  ·  Own ${profile.primalStones}',
               ),
             ),
+
             if (profile.realmStage >= 3) ...[
               const SizedBox(height: 12),
               OutlinedButton(
@@ -438,6 +469,7 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                 child: const Text('ATTEMPT BREAKTHROUGH'),
               ),
             ],
+
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 16),
@@ -464,14 +496,13 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                 _ActionChip(
                   label: 'Paths',
                   icon: Icons.alt_route,
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const PathsScreen()),
-                    ).then((_) {
-                      ref.read(pathsProvider.notifier).refresh();
-                      ref.read(profileProvider.notifier).refresh();
-                    });
+                    );
+                    ref.read(pathsProvider.notifier).refresh();
+                    ref.read(profileProvider.notifier).refresh();
                   },
                 ),
                 _ActionChip(
@@ -479,8 +510,7 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                   icon: Icons.inventory_2_outlined,
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (_) => const InventoryScreen()),
+                    MaterialPageRoute(builder: (_) => const InventoryScreen()),
                   ),
                 ),
                 _ActionChip(
@@ -488,8 +518,7 @@ class _CultivationScreenState extends ConsumerState<CultivationScreen> {
                   icon: Icons.science_outlined,
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (_) => const RefinementScreen()),
+                    MaterialPageRoute(builder: (_) => const RefinementScreen()),
                   ),
                 ),
               ],

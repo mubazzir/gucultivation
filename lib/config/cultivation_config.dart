@@ -45,7 +45,7 @@ class CultivationConfig {
   static const double pathGrowthFactor = 2.15;
 
   static double pathXpForLevel(int level) {
-    return pathBaseXp * (pathGrowthFactor * level);
+    return pathBaseXp * (pathGrowthFactor * (level + 1));
   }
 
   static double cumulativePathXp(int level) {

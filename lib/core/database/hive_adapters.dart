@@ -7,8 +7,6 @@ import '../../models/material_item.dart';
 import '../../models/task_model.dart';
 import '../../models/statistics.dart';
 
-/// Manual Hive TypeAdapters to avoid requiring code generation at first run.
-
 class UserProfileAdapter extends TypeAdapter<UserProfile> {
   @override
   final int typeId = 0;
@@ -140,13 +138,14 @@ class PathModelAdapter extends TypeAdapter<PathModel> {
       currentXp: (fields[3] as num?)?.toDouble() ?? 0,
       totalStudySeconds: fields[4] as int? ?? 0,
       createdAt: fields[5] as DateTime,
+      daoMarks: fields[6] as int? ?? 0,
     );
   }
 
   @override
   void write(BinaryWriter writer, PathModel obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -158,7 +157,9 @@ class PathModelAdapter extends TypeAdapter<PathModel> {
       ..writeByte(4)
       ..write(obj.totalStudySeconds)
       ..writeByte(5)
-      ..write(obj.createdAt);
+      ..write(obj.createdAt)
+      ..writeByte(6)
+      ..write(obj.daoMarks);
   }
 }
 

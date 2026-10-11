@@ -36,16 +36,28 @@ class PersistenceService {
     registerHiveAdapters();
 
     _userBox = await Hive.openBox<UserProfile>(AppConstants.hiveBoxUser);
-    _sessionBox = await Hive.openBox<CultivationSession>(AppConstants.hiveBoxSession);
+    _sessionBox =
+    await Hive.openBox<CultivationSession>(AppConstants.hiveBoxSession);
     _pathBox = await Hive.openBox<PathModel>(AppConstants.hiveBoxPaths);
     _guBox = await Hive.openBox<OwnedGu>(AppConstants.hiveBoxGu);
-    _materialBox = await Hive.openBox<OwnedMaterial>(AppConstants.hiveBoxMaterials);
+    _materialBox =
+    await Hive.openBox<OwnedMaterial>(AppConstants.hiveBoxMaterials);
     _taskBox = await Hive.openBox<TaskModel>(AppConstants.hiveBoxTasks);
     _statsBox = await Hive.openBox<Statistics>(AppConstants.hiveBoxStats);
     _settingsBox = await Hive.openBox(AppConstants.hiveBoxSettings);
 
     await _loadStaticData();
+
+    if (hasProfile) {
+      await ensureHeavenPath();
+      await ensureHeavenDayRollover();
+    }
+
     _initialized = true;
+  }
+
+  Future<void> deletePath(String id) async {
+    await _pathBox.delete(id);
   }
 
   Future<void> _loadStaticData() async {
@@ -61,14 +73,12 @@ class PersistenceService {
       materialTemplates = matList
           .map((e) => MaterialTemplate.fromJson(e as Map<String, dynamic>))
           .toList();
-    } catch (e) {
-      // Fallback empty if assets missing during early development
+    } catch (_) {
       guTemplates = [];
       materialTemplates = [];
     }
   }
 
-  // ---------- User Profile ----------
   bool get hasProfile => _userBox.isNotEmpty;
 
   UserProfile? getProfile() {
@@ -95,11 +105,27 @@ class PersistenceService {
     );
     await saveProfile(profile);
 
-    // Seed default paths
     final defaultPaths = [
-      PathModel(id: const Uuid().v4(), name: 'Wisdom Path', createdAt: DateTime.now()),
-      PathModel(id: const Uuid().v4(), name: 'Strength Path', createdAt: DateTime.now()),
-      PathModel(id: const Uuid().v4(), name: 'Refinement Path', createdAt: DateTime.now()),
+      PathModel(
+        id: const Uuid().v4(),
+        name: 'Wisdom Path',
+        createdAt: DateTime.now(),
+      ),
+      PathModel(
+        id: const Uuid().v4(),
+        name: 'Strength Path',
+        createdAt: DateTime.now(),
+      ),
+      PathModel(
+        id: const Uuid().v4(),
+        name: 'Refinement Path',
+        createdAt: DateTime.now(),
+      ),
+      PathModel(
+        id: const Uuid().v4(),
+        name: AppConstants.heavenPathName,
+        createdAt: DateTime.now(),
+      ),
     ];
     for (final p in defaultPaths) {
       await _pathBox.put(p.id, p);
@@ -107,16 +133,13 @@ class PersistenceService {
     profile.selectedPathId = defaultPaths.first.id;
     await saveProfile(profile);
 
-    // Init stats
     await _statsBox.put('main', Statistics());
-
-    // Init empty session
     await _sessionBox.put('current', CultivationSession());
+    await ensureHeavenDayRollover();
 
     return profile;
   }
 
-  // ---------- Session ----------
   CultivationSession getSession() {
     return _sessionBox.get('current') ?? CultivationSession();
   }
@@ -125,7 +148,6 @@ class PersistenceService {
     await _sessionBox.put('current', session);
   }
 
-  // ---------- Paths ----------
   List<PathModel> getAllPaths() => _pathBox.values.toList();
 
   PathModel? getPath(String id) => _pathBox.get(id);
@@ -144,7 +166,95 @@ class PersistenceService {
     return path;
   }
 
-  // ---------- Gu ----------
+  // ----- Heaven Path -----
+  static const _kHeavenDate = 'heaven_tasks_date';
+  static String _heavenKey(String taskId) => 'heaven_task_$taskId';
+
+  String _todayKey() {
+    final n = DateTime.now();
+    return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> ensureHeavenPath() async {
+    final exists = _pathBox.values.any((p) => p.isHeavenPath);
+    if (!exists) {
+      await savePath(PathModel(
+        id: const Uuid().v4(),
+        name: AppConstants.heavenPathName,
+        createdAt: DateTime.now(),
+      ));
+    }
+  }
+
+  PathModel? getHeavenPath() {
+    try {
+      return _pathBox.values.firstWhere((p) => p.isHeavenPath);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> ensureHeavenDayRollover() async {
+    final today = _todayKey();
+    final stored = _settingsBox.get(_kHeavenDate) as String?;
+
+    if (stored == null) {
+      await _settingsBox.put(_kHeavenDate, today);
+      for (final t in AppConstants.heavenDailyTasks) {
+        await _settingsBox.put(_heavenKey(t), false);
+      }
+      return;
+    }
+
+    if (stored == today) return;
+
+    final heaven = getHeavenPath();
+    if (heaven != null) {
+      var marks = heaven.daoMarks;
+      for (final t in AppConstants.heavenDailyTasks) {
+        final done =
+            _settingsBox.get(_heavenKey(t), defaultValue: false) == true;
+        if (!done) {
+          marks = (marks - 1).clamp(0, 999999);
+        }
+      }
+      heaven.daoMarks = marks;
+      await savePath(heaven);
+    }
+
+    await _settingsBox.put(_kHeavenDate, today);
+    for (final t in AppConstants.heavenDailyTasks) {
+      await _settingsBox.put(_heavenKey(t), false);
+    }
+  }
+
+  Map<String, bool> getHeavenTaskStatus() {
+    final map = <String, bool>{};
+    for (final t in AppConstants.heavenDailyTasks) {
+      map[t] = _settingsBox.get(_heavenKey(t), defaultValue: false) == true;
+    }
+    return map;
+  }
+
+  Future<bool> completeHeavenTask(String taskId) async {
+    await ensureHeavenDayRollover();
+    if (!AppConstants.heavenDailyTasks.contains(taskId)) return false;
+
+    final already =
+        _settingsBox.get(_heavenKey(taskId), defaultValue: false) == true;
+    if (already) return false;
+
+    await _settingsBox.put(_heavenKey(taskId), true);
+
+    final heaven = getHeavenPath();
+    if (heaven != null) {
+      heaven.daoMarks += 1;
+      await savePath(heaven);
+    }
+    return true;
+  }
+
+  // ----- Gu -----
   List<OwnedGu> getOwnedGu() => _guBox.values.toList();
 
   OwnedGu? getOwnedGuById(int guId) {
@@ -195,7 +305,7 @@ class PersistenceService {
   List<GuWormTemplate> getGuByRank(int rank) =>
       guTemplates.where((g) => g.rank == rank).toList();
 
-  // ---------- Materials ----------
+  // ----- Materials -----
   List<OwnedMaterial> getOwnedMaterials() => _materialBox.values.toList();
 
   OwnedMaterial? getOwnedMaterialById(int id) {
@@ -212,7 +322,8 @@ class PersistenceService {
       existing.quantity += qty;
       await existing.save();
     } else {
-      await _materialBox.add(OwnedMaterial(materialId: materialId, quantity: qty));
+      await _materialBox
+          .add(OwnedMaterial(materialId: materialId, quantity: qty));
     }
     final stats = getStats();
     stats.materialsObtained += qty;
@@ -239,7 +350,7 @@ class PersistenceService {
     }
   }
 
-  // ---------- Tasks ----------
+  // ----- Tasks -----
   List<TaskModel> getTasks({bool completed = false}) =>
       _taskBox.values.where((t) => t.isCompleted == completed).toList();
 
@@ -276,16 +387,12 @@ class PersistenceService {
     await saveStats(stats);
   }
 
-  // ---------- Stats ----------
-  Statistics getStats() {
-    return _statsBox.get('main') ?? Statistics();
-  }
+  Statistics getStats() => _statsBox.get('main') ?? Statistics();
 
   Future<void> saveStats(Statistics stats) async {
     await _statsBox.put('main', stats);
   }
 
-  // ---------- Settings ----------
   T? getSetting<T>(String key, {T? defaultValue}) {
     return _settingsBox.get(key, defaultValue: defaultValue) as T?;
   }
@@ -294,7 +401,6 @@ class PersistenceService {
     await _settingsBox.put(key, value);
   }
 
-  // ---------- Full wipe (Punishment / Reset) ----------
   Future<void> wipeAllData() async {
     await _userBox.clear();
     await _sessionBox.clear();
@@ -303,10 +409,9 @@ class PersistenceService {
     await _materialBox.clear();
     await _taskBox.clear();
     await _statsBox.clear();
-    // Keep settings except we clear display name related if needed
+    await _settingsBox.clear();
   }
 
-  // ---------- Backup / Restore ----------
   Future<String> exportToJson() async {
     final profile = getProfile();
     final data = {
@@ -328,38 +433,38 @@ class PersistenceService {
     await wipeAllData();
 
     if (data['profile'] != null) {
-      final profile = UserProfile.fromJson(data['profile'] as Map<String, dynamic>);
-      await saveProfile(profile);
+      await saveProfile(
+          UserProfile.fromJson(data['profile'] as Map<String, dynamic>));
     }
     if (data['session'] != null) {
-      await saveSession(CultivationSession.fromJson(data['session'] as Map<String, dynamic>));
+      await saveSession(CultivationSession.fromJson(
+          data['session'] as Map<String, dynamic>));
     }
     if (data['paths'] != null) {
       for (final p in data['paths'] as List) {
-        final path = PathModel.fromJson(p as Map<String, dynamic>);
-        await savePath(path);
+        await savePath(PathModel.fromJson(p as Map<String, dynamic>));
       }
     }
     if (data['ownedGu'] != null) {
       for (final g in data['ownedGu'] as List) {
-        final gu = OwnedGu.fromJson(g as Map<String, dynamic>);
-        await _guBox.add(gu);
+        await _guBox.add(OwnedGu.fromJson(g as Map<String, dynamic>));
       }
     }
     if (data['ownedMaterials'] != null) {
       for (final m in data['ownedMaterials'] as List) {
-        final mat = OwnedMaterial.fromJson(m as Map<String, dynamic>);
-        await _materialBox.add(mat);
+        await _materialBox
+            .add(OwnedMaterial.fromJson(m as Map<String, dynamic>));
       }
     }
     if (data['tasks'] != null) {
       for (final t in data['tasks'] as List) {
-        final task = TaskModel.fromJson(t as Map<String, dynamic>);
-        await saveTask(task);
+        await saveTask(TaskModel.fromJson(t as Map<String, dynamic>));
       }
     }
     if (data['statistics'] != null) {
-      await saveStats(Statistics.fromJson(data['statistics'] as Map<String, dynamic>));
+      await saveStats(
+          Statistics.fromJson(data['statistics'] as Map<String, dynamic>));
     }
+    await ensureHeavenPath();
   }
 }

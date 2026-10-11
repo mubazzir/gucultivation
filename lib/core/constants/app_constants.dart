@@ -28,6 +28,25 @@ class AppConstants {
     'D': 0.8,
     'E': 0.6,
   };
+  static const String heavenPathName = 'Heaven Path';
+
+  static const List<String> heavenDailyTasks = [
+    'fajr',
+    'dhuhr',
+    'asr',
+    'maghrib',
+    'isha',
+    'quran',
+  ];
+
+  static const Map<String, String> heavenTaskLabels = {
+    'fajr': 'Fajr',
+    'dhuhr': 'Dhuhr',
+    'asr': 'Asr',
+    'maghrib': 'Maghrib',
+    'isha': 'Isha',
+    'quran': 'Quran',
+  };
 
   // Path attainment ranks
   static const List<String> attainmentRanks = [
